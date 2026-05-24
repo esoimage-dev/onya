@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Onya — adaptive input</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #04040a;
+    --fg: #f0ede8;
+    --accent: #4a7fff;
+    --accent-glow: rgba(74, 127, 255, 0.15);
+    --fg-dim: rgba(240, 237, 232, 0.35);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+    cursor: none;
+    font-family: 'Bricolage Grotesque', sans-serif;
+  }
+
+  /* ── BLOB CURSOR ── */
+  #cursor-blob {
+    position: fixed;
+    width: 340px;
+    height: 340px;
+    border-radius: 50%;
+    background: radial-gradient(circle at center,
+      rgba(74,127,255,0.13) 0%,
+      rgba(74,127,255,0.06) 40%,
+      transparent 70%);
+    pointer-events: none;
+    z-index: 999;
+    transform: translate(-50%, -50%);
+    transition: transform 0.08s linear;
+    filter: blur(2px);
+    mix-blend-mode: screen;
+  }
+
+  #cursor-dot {
+    position: fixed;
+    width: 6px;
+    height: 6px;
+    background: var(--fg);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 1000;
+    transform: translate(-50%, -50%);
+    transition: transform 0.04s linear, width 0.2s, height 0.2s, background 0.2s;
+  }
+
+  #cursor-dot.hovering {
+    width: 48px;
+    height: 48px;
+    background: rgba(74,127,255,0.18);
+    border: 1px solid rgba(74,127,255,0.5);
+  }
+
+  /* ── BACKGROUND ── */
+  #bg-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+  }
+
+  /* ── NOISE OVERLAY ── */
+  .noise {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+
+  /* ── GRID LINES ── */
+  .grid-lines {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(240,237,232,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(240,237,232,0.025) 1px, transparent 1px);
+    background-size: 80px 80px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black, transparent);
+  }
+
+  /* ── MAIN LAYOUT ── */
+  main {
+    position: relative;
+    z-index: 10;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+
+  /* ── LOGO CONTAINER ── */
+  .logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    opacity: 0;
+    transform: translateY(20px);
+    animation: revealUp 1s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards;
+  }
+
+  .logo-symbol {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 24px rgba(74,127,255,0.3));
+    transition: filter 0.4s ease;
+  }
+
+  .logo-symbol:hover {
+    filter: drop-shadow(0 0 40px rgba(74,127,255,0.6));
+  }
+
+  .logo-text {
+    height: 40px;
+    filter: drop-shadow(0 0 12px rgba(240,237,232,0.1));
+  }
+
+  /* ── TAGLINE ── */
+  .tagline-wrap {
+    margin-top: 28px;
+    opacity: 0;
+    animation: revealUp 1s cubic-bezier(0.16, 1, 0.3, 1) 0.7s forwards;
+  }
+
+  .tagline {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 300;
+    letter-spacing: 0.45em;
+    padding-left: calc(0.45em + 5px);
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    text-align: center;
+  }
+
+  .tagline span {
+    display: inline-block;
+    animation: textShift 8s ease-in-out infinite;
+  }
+
+  /* ── BOTTOM LINE ── */
+  .bottom-line {
+    position: fixed;
+    bottom: 40px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    animation: revealUp 1s cubic-bezier(0.16, 1, 0.3, 1) 1s forwards;
+    z-index: 10;
+  }
+
+  .bottom-line a {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-indent: 0.3em;
+    color: rgba(240,237,232,0.25);
+    text-decoration: none;
+    text-transform: uppercase;
+    transition: color 0.3s;
+  }
+
+  .bottom-line a:hover { color: rgba(240,237,232,0.8); }
+
+  /* ── CORNER MARK ── */
+  .corner {
+    position: fixed;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: rgba(240,237,232,0.1);
+    opacity: 0;
+    animation: revealUp 1s ease 1.2s forwards;
+    z-index: 10;
+  }
+  .corner-tl { top: 32px; left: 40px; }
+  .corner-tr { top: 32px; right: 40px; text-align: right; }
+
+  /* ── ANIMATED ORBS IN BACKGROUND ── */
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    filter: blur(80px);
+    opacity: 0;
+    animation: orbFloat var(--dur) ease-in-out infinite var(--delay);
+  }
+
+  .orb-1 {
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(74,127,255,0.08), transparent 70%);
+    top: -200px; left: -100px;
+    --dur: 18s; --delay: 0s;
+  }
+  .orb-2 {
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(74,127,255,0.06), transparent 70%);
+    bottom: -100px; right: -80px;
+    --dur: 14s; --delay: -5s;
+  }
+  .orb-3 {
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(120,80,255,0.05), transparent 70%);
+    top: 40%; left: 60%;
+    --dur: 20s; --delay: -8s;
+  }
+
+  /* ── FLOATING PARTICLES ── */
+  .particle {
+    position: fixed;
+    width: 2px;
+    height: 2px;
+    background: rgba(74,127,255,0.6);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 2;
+    animation: particleDrift var(--pdur) linear infinite var(--pdelay);
+    opacity: 0;
+  }
+
+  /* ── KEYFRAMES ── */
+  @keyframes revealUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes orbFloat {
+    0%   { opacity: 1; transform: translate(0, 0) scale(1); }
+    33%  { transform: translate(30px, -40px) scale(1.05); }
+    66%  { transform: translate(-20px, 20px) scale(0.95); }
+    100% { opacity: 1; transform: translate(0, 0) scale(1); }
+  }
+
+  @keyframes particleDrift {
+    0%   { opacity: 0; transform: translateY(0); }
+    10%  { opacity: 0.8; }
+    90%  { opacity: 0.4; }
+    100% { opacity: 0; transform: translateY(-120vh); }
+  }
+
+  @keyframes textShift {
+    0%, 100% { opacity: 0.35; }
+    50%       { opacity: 0.6; }
+  }
+
+  @keyframes symbolPulse {
+    0%, 100% { filter: drop-shadow(0 0 20px rgba(74,127,255,0.25)); }
+    50%      { filter: drop-shadow(0 0 40px rgba(74,127,255,0.5)); }
+  }
+
+  .logo-symbol {
+    animation: symbolPulse 4s ease-in-out infinite;
+  }
+
+  /* ── SCANNING LINE ── */
+  .scan-line {
+    position: fixed;
+    left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(to right,
+      transparent 0%,
+      rgba(74,127,255,0.15) 20%,
+      rgba(74,127,255,0.4) 50%,
+      rgba(74,127,255,0.15) 80%,
+      transparent 100%);
+    z-index: 3;
+    pointer-events: none;
+    animation: scanMove 8s ease-in-out infinite;
+    opacity: 0.6;
+  }
+
+  @keyframes scanMove {
+    0%   { top: -2px; opacity: 0; }
+    5%   { opacity: 0.6; }
+    95%  { opacity: 0.3; }
+    100% { top: 100vh; opacity: 0; }
+  }
+
+</style>
+</head>
+<body>
+
+<!-- Cursor -->
+<div id="cursor-blob"></div>
+<div id="cursor-dot"></div>
+
+<!-- Background orbs -->
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<!-- Noise + grid -->
+<div class="noise"></div>
+<div class="grid-lines"></div>
+
+<!-- Scan line -->
+<div class="scan-line"></div>
+
+<!-- Canvas for background blobs -->
+<canvas id="bg-canvas"></canvas>
+
+<!-- Corners -->
+<div class="corner corner-tl">onya.tech</div>
+<div class="corner corner-tr">© 2026</div>
+
+<!-- Main content -->
+<main>
+  <div class="logo-wrap">
+    <!-- Symbol SVG -->
+    <svg class="logo-symbol" viewBox="0 0 351 351" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="175.5" cy="175.5" r="175.5" fill="white"/>
+      <path d="M130.235 80.4407C159.775 85.4976 183.664 107.778 189.221 135.456C189.66 137.641 190.696 142.795 191.524 146.91C197.325 175.75 208.509 192.68 225.863 198.89C235.041 202.174 242.842 202.666 257.637 200.894C271.146 199.277 279.194 200.879 286.768 206.695C289.451 208.755 294.627 214.223 294.662 215.035C294.673 215.293 295.077 215.904 295.56 216.393C299.189 220.069 301.682 233.346 300.147 240.831C294.749 267.162 263.752 277.459 243.479 259.655C239.142 255.845 237.257 252.985 233.325 244.249C224.62 224.907 216.247 215.717 203.038 211.007C189.459 206.166 169.283 208.453 146.759 217.386C136.068 221.625 124.831 223.144 111.372 222.17C86.4483 220.365 62.081 201.578 52.6406 176.888C47.1063 162.414 46.4852 145.793 50.9049 130.438C57.7039 106.816 79.6638 86.3118 103.532 81.2989C109.28 80.0918 125.206 79.5799 130.235 80.4407Z" fill="black"/>
+    </svg>
+
+    <!-- Wordmark SVG — scaled down -->
+    <svg class="logo-text" viewBox="0 0 863 313" fill="none" xmlns="http://www.w3.org/2000/svg" style="height:28px; width:auto;">
+      <path d="M421.498 147.671V251.351H461.876V150.098C461.876 138.299 459.552 126.616 455.037 115.715C450.522 104.814 443.903 94.9092 435.56 86.566C427.217 78.2228 417.312 71.6046 406.411 67.0893C395.511 62.574 383.827 60.25 372.028 60.25C360.229 60.25 348.545 62.574 337.645 67.0893C326.744 71.6046 316.839 78.2228 308.496 86.566C300.152 94.9092 293.534 104.814 289.019 115.715C284.504 126.616 282.18 138.299 282.18 150.098V251.351H322.558V147.671C322.558 134.551 327.77 121.968 337.048 112.691C346.325 103.414 358.908 98.2016 372.028 98.2016C385.148 98.2016 397.731 103.414 407.008 112.691C416.286 121.968 421.497 134.551 421.498 147.671Z" fill="white"/>
+      <path d="M128.403 0C199.319 8.24876e-06 256.807 57.488 256.807 128.403C256.807 199.319 199.319 256.807 128.403 256.807C57.488 256.807 8.24662e-06 199.319 0 128.403C0 57.488 57.488 0 128.403 0ZM128.401 38.7881C78.9087 38.7883 38.7873 78.9097 38.7871 128.402C38.7871 177.895 78.9086 218.017 128.401 218.018C177.894 218.018 218.017 177.895 218.017 128.402C218.016 78.9096 177.894 38.7881 128.401 38.7881Z" fill="white"/>
+      <path d="M512.162 312.584L557.95 312.625L661.583 65.4551H615.778L565.52 185.322L513.203 65.4551H468.914L543.82 237.078L512.162 312.584Z" fill="white"/>
+      <path d="M754.537 60.7119C765.52 59.6471 776.103 60.4372 786.354 62.8213C796.604 65.2053 806.521 69.1828 815.871 75.0176C825.222 80.8523 834.005 88.5446 841.137 97.5059C848.268 106.467 853.747 116.698 857.304 127.216C860.86 137.734 862.495 148.54 862.482 158.731L862.117 251.353H823.991V233.602C815.915 240.24 806.353 245.961 795.843 249.945C785.332 253.93 773.872 256.179 762.433 256.294C750.993 256.409 739.573 254.389 729.208 250.641C718.843 246.892 709.533 241.416 701.493 234.841C697.473 231.553 693.771 227.991 690.258 224.002C686.744 220.013 683.419 215.596 680.469 210.892C677.519 206.187 674.945 201.193 672.801 195.89C670.657 190.586 668.944 184.973 667.735 179.362C662.903 156.919 666.145 134.511 675.667 115.196C685.189 95.881 700.992 79.658 721.71 69.8184C726.89 67.3584 732.377 65.2972 737.916 63.7686C743.455 62.2401 749.046 61.2444 754.537 60.7119ZM763.771 97.9512C730.309 97.9514 703.184 125.077 703.184 158.538C703.184 191.999 730.309 219.126 763.771 219.126C797.232 219.126 824.358 192 824.358 158.538C824.358 125.077 797.232 97.9512 763.771 97.9512Z" fill="white"/>
+    </svg>
+  </div>
+
+  <div class="tagline-wrap">
+    <p class="tagline"><span>adaptive input</span></p>
+  </div>
+</main>
+
+<!-- Bottom -->
+<div class="bottom-line">
+  <a href="mailto:hello@onya.tech">hello@onya.tech</a>
+</div>
+
+<script>
+// ── CURSOR ──
+const blob = document.getElementById('cursor-blob');
+const dot  = document.getElementById('cursor-dot');
+let mx = window.innerWidth / 2, my = window.innerHeight / 2;
+let bx = mx, by = my;
+
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  dot.style.left = mx + 'px';
+  dot.style.top  = my + 'px';
+});
+
+document.querySelectorAll('a').forEach(el => {
+  el.addEventListener('mouseenter', () => dot.classList.add('hovering'));
+  el.addEventListener('mouseleave', () => dot.classList.remove('hovering'));
+});
+
+function animBlob() {
+  bx += (mx - bx) * 0.06;
+  by += (my - by) * 0.06;
+  blob.style.left = bx + 'px';
+  blob.style.top  = by + 'px';
+  requestAnimationFrame(animBlob);
+}
+animBlob();
+
+// ── CANVAS BACKGROUND BLOBS ──
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+const blobs = [
+  { x: 0.2, y: 0.3, r: 0.35, vx: 0.00008, vy: 0.00005, phase: 0 },
+  { x: 0.8, y: 0.7, r: 0.28, vx: -0.00006, vy: 0.00007, phase: 2 },
+  { x: 0.5, y: 0.5, r: 0.2,  vx: 0.00004, vy: -0.00009, phase: 4 },
+];
+
+let t = 0;
+function drawBlobs() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const W = canvas.width, H = canvas.height;
+
+  blobs.forEach(b => {
+    b.x += b.vx + Math.sin(t * 0.5 + b.phase) * 0.0001;
+    b.y += b.vy + Math.cos(t * 0.4 + b.phase) * 0.0001;
+    if (b.x < -0.2) b.x = 1.2;
+    if (b.x >  1.2) b.x = -0.2;
+    if (b.y < -0.2) b.y = 1.2;
+    if (b.y >  1.2) b.y = -0.2;
+
+    const grad = ctx.createRadialGradient(
+      b.x * W, b.y * H, 0,
+      b.x * W, b.y * H, b.r * Math.min(W, H)
+    );
+    grad.addColorStop(0,   'rgba(74,127,255,0.04)');
+    grad.addColorStop(0.5, 'rgba(74,127,255,0.02)');
+    grad.addColorStop(1,   'transparent');
+    ctx.beginPath();
+    ctx.arc(b.x * W, b.y * H, b.r * Math.min(W, H), 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  });
+
+  t += 1;
+  requestAnimationFrame(drawBlobs);
+}
+drawBlobs();
+
+// ── PARTICLES ──
+function spawnParticle() {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  const x = Math.random() * 100;
+  const dur = 8 + Math.random() * 12;
+  const delay = -(Math.random() * dur);
+  p.style.cssText = `
+    left: ${x}vw;
+    bottom: -10px;
+    --pdur: ${dur}s;
+    --pdelay: ${delay}s;
+    opacity: 0;
+  `;
+  document.body.appendChild(p);
+}
+
+for (let i = 0; i < 24; i++) spawnParticle();
+</script>
+</body>
+</html>
